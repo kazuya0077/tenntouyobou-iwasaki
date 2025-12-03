@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-import { Activity, ClipboardList, Download, Save, User, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Activity, ClipboardList, Download, Save, User, CheckCircle2, AlertCircle, Share2 } from 'lucide-react';
 
 import { Gender, PhysicalMeasurements, QuestionnaireAnswers, UserProfile } from './types';
 import { calculateChartData, generateAdvice } from './utils/scoring';
@@ -11,6 +11,9 @@ import { saveToSheet } from './services/api';
 
 // ユーザーから指定されたGAS URL
 const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzHbg5zmZtJy01SqbOrsnIH6Bdk5tx_glAUH7nmIBsKZcoHgbjo0ACCvRwUnOImVdFPsg/exec";
+
+// 推奨動画URL
+const VIDEO_URL = "https://youtu.be/H4w22KbCtzs?si=wIe4EwFgWoWTkQMc";
 
 // 生の入力データを保持するインターフェース（2回測定対応）
 interface RawInputMeasurements {
@@ -213,7 +216,7 @@ const App: React.FC = () => {
   const comment = generateAdvice(radarData);
 
   // --- PDF Export Logic (Strict A4 Layout) ---
-  const handleExportPDF = async () => {
+  const handleExportPDF = async (action: 'download' | 'share') => {
     const printElement = document.getElementById('print-template');
     if (!printElement) {
       alert("印刷用テンプレートが見つかりません");
@@ -234,7 +237,38 @@ const App: React.FC = () => {
       const pdfHeight = 297;
       
       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`評価結果_${profile.name || '未記入'}.pdf`);
+      
+      const fileName = `評価結果_${profile.name || '未記入'}.pdf`;
+
+      // シェアモード (スマホ/LINE向け)
+      if (action === 'share') {
+        if (navigator.share) {
+          try {
+            const blob = pdf.output('blob');
+            const file = new File([blob], fileName, { type: 'application/pdf' });
+            
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                files: [file],
+                title: '転倒リスク評価結果',
+                text: '評価結果のPDFファイルを送信します。',
+              });
+              return;
+            } else {
+              alert("このブラウザはファイルの共有に対応していません。「保存」ボタンをお試しください。");
+            }
+          } catch (err) {
+            console.warn("Web Share API error:", err);
+            // キャンセルされた場合などは何もしない
+          }
+        } else {
+          alert("このブラウザは共有機能に対応していません。「保存」ボタンをお試しください。");
+        }
+        return;
+      }
+
+      // ダウンロードモード (PC向け / 強制保存)
+      pdf.save(fileName);
 
     } catch (err) {
       alert('PDF生成に失敗しました');
@@ -589,17 +623,30 @@ const App: React.FC = () => {
                   {isSaving ? '保存中...' : 'クラウドへ保存'}
                 </button>
                 
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    handleExportPDF();
-                  }}
-                  className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-6 py-4 rounded-lg font-bold shadow transition-all active:translate-y-0.5"
-                >
-                  <Download size={20} />
-                  PDFをダウンロード
-                </button>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleExportPDF('download');
+                    }}
+                    className="flex flex-col items-center justify-center gap-1 bg-slate-800 hover:bg-slate-900 text-white px-4 py-3 rounded-lg font-bold shadow transition-all active:translate-y-0.5 text-sm"
+                  >
+                    <Download size={20} />
+                    <span>PDFを保存<br/><span className="text-xs font-normal opacity-75">(PC推奨)</span></span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleExportPDF('share');
+                    }}
+                    className="flex flex-col items-center justify-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-lg font-bold shadow transition-all active:translate-y-0.5 text-sm"
+                  >
+                    <Share2 size={20} />
+                    <span>PDFを共有<br/><span className="text-xs font-normal opacity-75">(LINE/スマホ)</span></span>
+                  </button>
+                </div>
               </div>
 
                {/* Status */}
@@ -696,7 +743,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Advice (Filling remaining space naturally) */}
-        <div className="bg-indigo-50 p-6 rounded-lg border border-indigo-200">
+        <div className="bg-indigo-50 p-6 rounded-lg border border-indigo-200 mb-6">
            <h3 className="text-lg font-bold text-indigo-900 mb-3 flex items-center gap-2 border-b border-indigo-200 pb-2">
              評価・アドバイス
            </h3>
@@ -706,6 +753,28 @@ const App: React.FC = () => {
            <div className="mt-6 pt-2 border-t border-indigo-200 text-xs text-slate-500 text-right">
              本結果は簡易的な評価であり、医学的診断に代わるものではありません。
            </div>
+        </div>
+
+        {/* Video Link Area */}
+        <div className="border-t-2 border-slate-200 pt-4 flex flex-row items-center gap-6">
+            <div className="w-24 h-24 shrink-0 bg-white border border-slate-200 p-1">
+                 <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=${encodeURIComponent(VIDEO_URL)}`}
+                    alt="動画QR"
+                    className="w-full h-full"
+                    crossOrigin="anonymous"
+                 />
+            </div>
+            <div className="flex-1">
+                <h3 className="font-bold text-slate-900 text-base mb-2">推奨トレーニング動画</h3>
+                <p className="text-sm text-slate-700 mb-1">
+                    転倒予防のための運動プログラムを紹介しています。
+                    左記のQRコード、または以下のURLから動画をご覧ください。
+                </p>
+                <a href={VIDEO_URL} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-700 underline break-all font-mono">
+                    {VIDEO_URL}
+                </a>
+            </div>
         </div>
       </div>
     </div>
