@@ -1,0 +1,5 @@
+{
+  "name": "Copy of 転倒リスク評価",
+  "description": "身体機能計測結果の入力、レーダーチャート可視化、PDF出力、およびスプレッドシート連携を行うWebアプリケーション",
+  "requestFramePermissions": []
+}
