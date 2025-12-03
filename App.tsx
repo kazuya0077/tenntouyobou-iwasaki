@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-import { Activity, ClipboardList, Download, Save, User, CheckCircle2, AlertCircle, Share2 } from 'lucide-react';
+import { Activity, ClipboardList, Download, Save, User, CheckCircle2, AlertCircle, Eye } from 'lucide-react';
 
 import { Gender, PhysicalMeasurements, QuestionnaireAnswers, UserProfile } from './types';
 import { calculateChartData, generateAdvice } from './utils/scoring';
@@ -164,6 +164,7 @@ const App: React.FC = () => {
 
   const [gasUrl, setGasUrl] = useState<string>(DEFAULT_GAS_URL);
   const [isSaving, setIsSaving] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | ''; msg: string }>({ type: '', msg: '' });
 
   // --- Handlers ---
@@ -216,14 +217,21 @@ const App: React.FC = () => {
   const comment = generateAdvice(radarData);
 
   // --- PDF Export Logic (Strict A4 Layout) ---
-  const handleExportPDF = async (action: 'download' | 'share') => {
+  const handleExportPDF = async (action: 'download' | 'preview') => {
+    if (isGeneratingPdf) return;
+    
     const printElement = document.getElementById('print-template');
     if (!printElement) {
       alert("印刷用テンプレートが見つかりません");
       return;
     }
 
+    setIsGeneratingPdf(true);
+
     try {
+      // 待機時間を少し設けてUIの更新を反映させる
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       const canvas = await html2canvas(printElement, { 
         scale: 2, // 高解像度
         useCORS: true,
@@ -240,39 +248,27 @@ const App: React.FC = () => {
       
       const fileName = `評価結果_${profile.name || '未記入'}.pdf`;
 
-      // シェアモード (スマホ/LINE向け)
-      if (action === 'share') {
-        if (navigator.share) {
-          try {
-            const blob = pdf.output('blob');
-            const file = new File([blob], fileName, { type: 'application/pdf' });
-            
-            if (navigator.canShare && navigator.canShare({ files: [file] })) {
-              await navigator.share({
-                files: [file],
-                title: '転倒リスク評価結果',
-                text: '評価結果のPDFファイルを送信します。',
-              });
-              return;
-            } else {
-              alert("このブラウザはファイルの共有に対応していません。「保存」ボタンをお試しください。");
-            }
-          } catch (err) {
-            console.warn("Web Share API error:", err);
-            // キャンセルされた場合などは何もしない
-          }
-        } else {
-          alert("このブラウザは共有機能に対応していません。「保存」ボタンをお試しください。");
+      if (action === 'preview') {
+        // プレビューモード (LINEブラウザ等用)
+        // Blob URLを作成して別タブで開く
+        const blob = pdf.output('blob');
+        const blobUrl = URL.createObjectURL(blob);
+        const newWindow = window.open(blobUrl, '_blank');
+        
+        if (!newWindow) {
+          alert("ポップアップがブロックされました。「保存」ボタンをお試しいただくか、ブラウザの設定をご確認ください。");
         }
-        return;
+      } else {
+        // ダウンロードモード (PC / Android / iOS Safari用)
+        // 直接保存を試みる
+        pdf.save(fileName);
       }
-
-      // ダウンロードモード (PC向け / 強制保存)
-      pdf.save(fileName);
 
     } catch (err) {
       alert('PDF生成に失敗しました');
       console.error(err);
+    } finally {
+      setIsGeneratingPdf(false);
     }
   };
 
@@ -614,7 +610,7 @@ const App: React.FC = () => {
                     e.preventDefault();
                     handleSaveToSheet();
                   }}
-                  disabled={isSaving}
+                  disabled={isSaving || isGeneratingPdf}
                   className={`w-full flex items-center justify-center gap-2 px-6 py-4 rounded-lg font-bold text-white shadow transition-all ${
                     isSaving ? 'bg-slate-400' : 'bg-emerald-600 hover:bg-emerald-700 active:translate-y-0.5'
                   }`}
@@ -630,21 +626,27 @@ const App: React.FC = () => {
                       e.preventDefault();
                       handleExportPDF('download');
                     }}
-                    className="flex flex-col items-center justify-center gap-1 bg-slate-800 hover:bg-slate-900 text-white px-4 py-3 rounded-lg font-bold shadow transition-all active:translate-y-0.5 text-sm"
+                    disabled={isGeneratingPdf}
+                    className={`flex flex-col items-center justify-center gap-1 text-white px-4 py-3 rounded-lg font-bold shadow transition-all active:translate-y-0.5 text-sm ${
+                      isGeneratingPdf ? 'bg-slate-400' : 'bg-slate-800 hover:bg-slate-900'
+                    }`}
                   >
                     <Download size={20} />
-                    <span>PDFを保存<br/><span className="text-xs font-normal opacity-75">(PC推奨)</span></span>
+                    <span>{isGeneratingPdf ? '生成中...' : 'PDFを保存'}<br/><span className="text-xs font-normal opacity-75">(端末に保存)</span></span>
                   </button>
                   <button
                     type="button"
                     onClick={(e) => {
                       e.preventDefault();
-                      handleExportPDF('share');
+                      handleExportPDF('preview');
                     }}
-                    className="flex flex-col items-center justify-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-lg font-bold shadow transition-all active:translate-y-0.5 text-sm"
+                    disabled={isGeneratingPdf}
+                    className={`flex flex-col items-center justify-center gap-1 text-white px-4 py-3 rounded-lg font-bold shadow transition-all active:translate-y-0.5 text-sm ${
+                      isGeneratingPdf ? 'bg-slate-400' : 'bg-indigo-600 hover:bg-indigo-700'
+                    }`}
                   >
-                    <Share2 size={20} />
-                    <span>PDFを共有<br/><span className="text-xs font-normal opacity-75">(LINE/スマホ)</span></span>
+                    <Eye size={20} />
+                    <span>{isGeneratingPdf ? '生成中...' : 'PDFを表示'}<br/><span className="text-xs font-normal opacity-75">(プレビュー)</span></span>
                   </button>
                 </div>
               </div>
